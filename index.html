@@ -206,7 +206,25 @@ input:focus,select:focus,textarea:focus{border-color:#766bdd;box-shadow:0 0 0 3p
 <div class="detailbody" id="detailbody"></div>
 </div></div>
 
-<script>
+<script type="module">
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-app.js";
+import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/12.17.1/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyB79I1ybRo0rGuEoSWfiqmzeOZavk1tDWM",
+  authDomain: "pauta-2s.firebaseapp.com",
+  databaseURL: "https://pauta-2s-default-rtdb.firebaseio.com",
+  projectId: "pauta-2s",
+  storageBucket: "pauta-2s.firebasestorage.app",
+  messagingSenderId: "1016151231752",
+  appId: "1:1016151231752:web:4e31e95c9b08b68cc2b0bd"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const jobsRef = ref(db, "jobs");
+
 (()=>{
 const DAY=86400000,KEY='pauta_strategy_v4',OLDKEY='pauta_strategy_v3';
 let selectedStatus='Em andamento',selectedClient='Todos',editing=null,prefillMember=null;
@@ -234,8 +252,89 @@ const seed=()=>[
 {id:uid(),name:'Effie Submission',client:'Effie',complexity:'Alta',status:'Não iniciado',start:iso(add(today,3)),end:iso(add(today,10)),tp:iso(add(today,7)),members:['Giovanna Bariani','Sabrina Santos'],links:blankLinks(),notes:''},
 {id:uid(),name:'New Business Case',client:'Pitch',complexity:'Média',status:'Pausado',start:iso(add(today,-2)),end:iso(add(today,5)),tp:'',members:['John Oliveira','Guilherme Dionisio'],links:blankLinks(),notes:''}];
 function normalize(j){const links=j.links||{};return{id:j.id||uid(),name:j.name||'Sem título',client:j.client||'GUT',complexity:j.complexity||'Média',status:j.status||'Em andamento',start:j.start||iso(today),end:j.end||iso(add(today,3)),tp:j.tp||'',members:j.members||[],links:{drive:links.drive||links.deck||j.link||'',monday:links.monday||'',clientBrief:links.clientBrief||links.client||links.account||''},notes:j.notes||''}}
-let jobs;try{const own=JSON.parse(localStorage.getItem(KEY)||'null'),old=JSON.parse(localStorage.getItem(OLDKEY)||'null');jobs=(own||old||seed()).map(normalize)}catch{jobs=seed()}
-const save=()=>{localStorage.setItem(KEY,JSON.stringify(jobs));localStorage.setItem('pauta_strategy_theme',document.documentElement.dataset.theme);document.getElementById('updated').textContent='Atualizado às '+new Intl.DateTimeFormat('pt-BR',{hour:'2-digit',minute:'2-digit'}).format(new Date())};
+let jobs = [];
+let firebaseReady = false;
+
+onValue(jobsRef, async (snapshot) => {
+
+  if(snapshot.exists()){
+
+    const data = snapshot.val();
+
+    jobs = Array.isArray(data)
+      ? data.map(normalize)
+      : Object.values(data).map(normalize);
+
+  } else {
+
+    let initialJobs;
+
+    try{
+
+      const currentLocal =
+        JSON.parse(localStorage.getItem(KEY) || 'null');
+
+      const oldLocal =
+        JSON.parse(localStorage.getItem(OLDKEY) || 'null');
+
+      initialJobs =
+        (currentLocal || oldLocal || seed()).map(normalize);
+
+    }catch{
+
+      initialJobs = seed();
+
+    }
+
+    jobs = initialJobs;
+
+    await set(jobsRef, jobs);
+  }
+
+  firebaseReady = true;
+
+  render();
+
+}, (error) => {
+
+  console.error("Erro Firebase:", error);
+
+  alert("Não consegui acessar a pauta compartilhada. Verifique as regras do Firebase.");
+
+});
+const save = async () => {
+
+  localStorage.setItem(KEY, JSON.stringify(jobs));
+
+  localStorage.setItem(
+    'pauta_strategy_theme',
+    document.documentElement.dataset.theme
+  );
+
+  document.getElementById('updated').textContent =
+    'Atualizado às ' +
+    new Intl.DateTimeFormat('pt-BR',{
+      hour:'2-digit',
+      minute:'2-digit'
+    }).format(new Date());
+
+  if(firebaseReady){
+
+    try{
+
+      await set(jobsRef, jobs);
+
+    }catch(error){
+
+      console.error("Erro ao salvar no Firebase:", error);
+
+      alert("Não consegui salvar a alteração na pauta compartilhada.");
+
+    }
+
+  }
+
+};localStorage.setItem(KEY,JSON.stringify(jobs));localStorage.setItem('pauta_strategy_theme',document.documentElement.dataset.theme);document.getElementById('updated').textContent='Atualizado às '+new Intl.DateTimeFormat('pt-BR',{hour:'2-digit',minute:'2-digit'}).format(new Date())};
 const savedTheme=localStorage.getItem('pauta_strategy_theme')||'dark';document.documentElement.dataset.theme=savedTheme;document.getElementById('theme').textContent=savedTheme==='dark'?'☾':'☀';
 document.getElementById('date').textContent=new Intl.DateTimeFormat('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'}).format(today);
 document.getElementById('range').textContent=`▣ ${fmt(iso(today))} → ${fmt(iso(add(today,N-1)))}`;
@@ -284,7 +383,7 @@ document.querySelector('.nav').onclick=e=>{const b=e.target.closest('[data-view]
 get('theme').onclick=()=>{const next=document.documentElement.dataset.theme==='dark'?'light':'dark';document.documentElement.dataset.theme=next;get('theme').textContent=next==='dark'?'☾':'☀';save()};
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeM();closeDetail()}});
 window.editJob=open;window.showDetail=showDetail;window.editFromDetail=id=>{closeDetail();open(id)};window.deleteJob=id=>{const j=jobs.find(x=>x.id===id);if(j&&confirm(`Excluir "${j.name}"?`)){jobs=jobs.filter(x=>x.id!==id);save();render()}};window.setStatus=(id,status)=>{jobs=jobs.map(j=>j.id===id?{...j,status}:j);save();render()};window.newForMember=name=>{prefillMember=name;open()};
-save();render()
+// A pauta será carregada pelo Firebase
 })();
 </script>
 </body>
